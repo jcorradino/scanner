@@ -1,29 +1,27 @@
 const fs = require('fs');
 const path = require('path');
-const { program } = require('commander'); // For command-line argument parsing
-const connectDB = require('./db'); // MongoDB connection
+const connectDB = require('./db');
 
-// Generates the HTML report from scan results and screenshots
 async function generateHtmlReport(scanID, outputDir) {
-    const scanResults = await fetchScanResults(scanID); // Fetch the results from DB
-    const htmlContent = generateHtmlContent(scanResults, scanID); // Generate HTML content based on the results
+    const scanResults = await fetchScanResults(scanID);
+    const htmlContent = generateHtmlContent(scanResults, scanID);
 
-    // Define the output file path
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+
     const outputPath = path.join(outputDir, `scan-report-${scanID}.html`);
-
-    // Write the HTML content to the file
     fs.writeFileSync(outputPath, htmlContent, 'utf8');
     console.log(`HTML report saved to ${outputPath}`);
 
-    process.exit(1);
+    return outputPath;
 }
 
-// Fetch scan results from your MongoDB based on scanID
 async function fetchScanResults(scanID) {
     const db = await connectDB();
     const collection = db.collection('axeResults');
     const results = await collection.find({ scanID: scanID }).toArray();
-    return results; // Return the scan results as an array
+    return results;
 }
 
 function escapeHtml(str = '') {
@@ -35,7 +33,6 @@ function escapeHtml(str = '') {
     .replace(/'/g, '&#39;');
 }
 
-// Generates HTML content based on the scan results
 function generateHtmlContent(scanResults, scanID) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -84,22 +81,4 @@ function generateHtmlContent(scanResults, scanID) {
 </html>`;
 }
 
-
-// Command-line argument handling
-program
-    .version('1.0.0')
-    .description('Generate Accessibility Scan Report')
-    .option('-s, --scanID <scanID>', 'Scan ID for the report')  // Use the provided scanID
-    .option('-o, --outputDir <outputDir>', 'Directory to save the report', './reports') // Output directory for the report
-    .parse(process.argv);
-
-const { scanID, outputDir } = program.opts();
-
-// Ensure a scanID is provided
-if (!scanID) {
-    console.log('Please provide a scanID using the -s flag.');
-    process.exit(1);
-}
-
-// Run the report generation
-generateHtmlReport(scanID, outputDir);
+module.exports = { generateHtmlReport };

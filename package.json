@@ -1,4 +1,13 @@
 {
+  "name": "scanner",
+  "version": "1.0.0",
+  "description": "Accessibility scanner powered by axe-core and Puppeteer",
+  "bin": {
+    "scanner": "./bin/scanner.js"
+  },
+  "scripts": {
+    "scanner": "node ./bin/scanner.js"
+  },
   "dependencies": {
     "axe-core": "^4.10.2",
     "commander": "^12.1.0",

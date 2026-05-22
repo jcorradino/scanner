@@ -1,19 +1,16 @@
 const puppeteer = require('puppeteer');
 const axeCore = require('axe-core');
 const connectDB = require('./db');
-const { program } = require('commander');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-// Generates a unique scan ID based on the URL list
 function generateScanID(urls) {
     const urlListHash = crypto.createHash('sha256').update(urls.join(',')).digest('hex').slice(0, 8);
     const timestamp = Date.now().toString();
     return `${timestamp}-${urlListHash}`;
 }
 
-// Runs axe-core on the provided URL, excluding best practice rules
 async function runAxe(url, scanID, pageIndex) {
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
@@ -76,12 +73,10 @@ async function runAxe(url, scanID, pageIndex) {
     return results;
 }
 
-// Simple delay function to wait for a specified time
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Scrolls through the entire page to ensure content is loaded
 async function scrollThroughPage(page) {
     const scrollDelay = 1000;
     let previousHeight = await page.evaluate('document.body.scrollHeight');
@@ -98,13 +93,12 @@ async function scrollThroughPage(page) {
     }
 }
 
-// Highlights and captures screenshots of violations
 async function highlightAndCaptureIssues(page, violations, scanID, pageIndex) {
     let issueCount = 0;
 
-    const scanDir = path.join(__dirname, `scan-${scanID}`);
+    const scanDir = path.join(process.cwd(), `scan-${scanID}`);
     if (!fs.existsSync(scanDir)) {
-        fs.mkdirSync(scanDir);
+        fs.mkdirSync(scanDir, { recursive: true });
     }
 
     for (const violation of violations) {
@@ -127,7 +121,6 @@ async function highlightAndCaptureIssues(page, violations, scanID, pageIndex) {
                 }
             }, node.target);
 
-            // Scroll the element into view to focus it (instant scroll behavior)
             await page.evaluate((selector) => {
                 const element = document.querySelector(selector);
                 if (element) {
@@ -135,7 +128,6 @@ async function highlightAndCaptureIssues(page, violations, scanID, pageIndex) {
                 }
             }, node.target);
 
-            // Screenshot for each individual node within the violation
             const screenshotPath = path.join(scanDir, `page${pageIndex}-issue${issueCount}-node${parseInt(nodeIndex) + 1}.png`);
             await page.screenshot({ path: screenshotPath });
             console.log(`Screenshot saved: ${screenshotPath}`);
@@ -150,7 +142,6 @@ async function highlightAndCaptureIssues(page, violations, scanID, pageIndex) {
     }
 }
 
-// Saves the scan results to a MongoDB collection
 async function saveResults(url, results, scanID, pageIndex) {
     const db = await connectDB();
     const collection = db.collection('axeResults');
@@ -165,7 +156,6 @@ async function saveResults(url, results, scanID, pageIndex) {
     console.log(`Results for ${url} saved to database under scanID ${scanID}, pageID ${pageIndex}`);
 }
 
-// Generates a quick report of the violations found in the scan
 async function generateQuickReport(scanID) {
     const db = await connectDB();
     const collection = db.collection('axeResults');
@@ -198,39 +188,21 @@ async function generateQuickReport(scanID) {
     }
 }
 
-// Runs the scanning process for all provided URLs
 async function scanUrls(urls) {
     const scanID = generateScanID(urls);
 
     let pageIndex = 0;
-    let allViolations = [];
 
     for (const url of urls) {
         pageIndex++;
         console.log(`Scanning: ${url} (Page ${pageIndex})`);
         const results = await runAxe(url, scanID, pageIndex);
-        allViolations = allViolations.concat(results.violations);
         await saveResults(url, results, scanID, pageIndex);
     }
 
     await generateQuickReport(scanID);
 
-    console.log("Scan completed. Exiting process...");
-    process.exit(0);
+    return scanID;
 }
 
-// Command-line argument handling
-program
-    .version('1.0.0')
-    .description('Axe-core scanner for URLs')
-    .option('-u, --urls <urls>', 'Comma-separated list of URLs to scan', (val) => val.split(','))
-    .parse(process.argv);
-
-const { urls } = program.opts();
-
-if (!urls || urls.length === 0) {
-    console.log('Please provide a list of URLs to scan.');
-    process.exit(1);
-}
-
-scanUrls(urls);
+module.exports = { scanUrls };
