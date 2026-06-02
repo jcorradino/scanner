@@ -6,7 +6,8 @@
     "scanner": "./bin/scanner.js"
   },
   "scripts": {
-    "scanner": "node ./bin/scanner.js"
+    "scanner": "node ./bin/scanner.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "axe-core": "^4.10.2",

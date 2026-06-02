@@ -4,6 +4,14 @@ const connectDB = require('./db');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+    createProtocolState,
+    attachProtocolListeners,
+    installTrackingInitScript,
+    waitForFullyLoaded,
+} = require('./loading');
+
+const DEFAULT_SETTLE_TIMEOUT_MS = 8000;
 
 function generateScanID(urls) {
     const urlListHash = crypto.createHash('sha256').update(urls.join(',')).digest('hex').slice(0, 8);
@@ -11,15 +19,33 @@ function generateScanID(urls) {
     return `${timestamp}-${urlListHash}`;
 }
 
-async function runAxe(url, scanID, pageIndex) {
+async function runAxe(url, scanID, pageIndex, opts = {}) {
+    const settleTimeoutMs = opts.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
-    await page.setViewport({ width: 1400, height: 1000 });
-    await page.goto(url);
+    const protocolState = createProtocolState();
+    attachProtocolListeners(page, protocolState);
+    await installTrackingInitScript(page);
 
-    await delay(2000);
+    await page.setViewport({ width: 1400, height: 1000 });
+    // Reset network bookkeeping at navigation start so a long idle period
+    // before goto() doesn't trick the quiet-window check.
+    protocolState.netInflight = 0;
+    protocolState.lastNetActivityAt = Date.now();
+    await page.goto(url, { waitUntil: 'load' });
+
+    let res = await waitForFullyLoaded(page, protocolState, { timeoutMs: settleTimeoutMs });
+    if (res.timedOut) {
+        console.warn(`page did not settle within ${settleTimeoutMs}ms — auditing best-effort state (${url})`);
+    }
     await scrollThroughPage(page);
+    // Catch the lazy-loaded wave that scrolling kicked off.
+    const postScrollCap = Math.min(3000, settleTimeoutMs);
+    res = await waitForFullyLoaded(page, protocolState, { timeoutMs: postScrollCap });
+    if (res.timedOut) {
+        console.warn(`page did not settle within ${postScrollCap}ms after scroll — auditing best-effort state (${url})`);
+    }
 
     await page.evaluate(axeCore.source);
 
@@ -188,7 +214,7 @@ async function generateQuickReport(scanID) {
     }
 }
 
-async function scanUrls(urls) {
+async function scanUrls(urls, opts = {}) {
     const scanID = generateScanID(urls);
 
     let pageIndex = 0;
@@ -196,7 +222,7 @@ async function scanUrls(urls) {
     for (const url of urls) {
         pageIndex++;
         console.log(`Scanning: ${url} (Page ${pageIndex})`);
-        const results = await runAxe(url, scanID, pageIndex);
+        const results = await runAxe(url, scanID, pageIndex, opts);
         await saveResults(url, results, scanID, pageIndex);
     }
 
@@ -205,4 +231,4 @@ async function scanUrls(urls) {
     return scanID;
 }
 
-module.exports = { scanUrls };
+module.exports = { scanUrls, DEFAULT_SETTLE_TIMEOUT_MS };
